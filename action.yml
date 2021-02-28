@@ -1,0 +1,37 @@
+name: "Deploy to repo"
+description: "Push files/folder (may be created by a workflow run) to another GitHub repository"
+author: "Manzoor Wani (manzoorwani.dev)"
+inputs:
+  src_dir:
+    description: "Relative path of the source directory."
+    required: true
+  target_owner:
+    description: "GitHub username of the target repo owner."
+    required: true
+  target_repo:
+    description: "Name of the target repo."
+    required: true
+  target_dir:
+    description: "Relative path of the target directory."
+    required: true
+  target_branch:
+    description: "Name of the branch on target repo."
+    default: "master"
+  access_token:
+    description: "GitHub access token for the target repo."
+  git_user_email:
+    description: "Email of the git user."
+  git_user_name:
+    description: "Name of the git user."
+  cleanup_command:
+    description: "The command(s) to run for clean up before copying the files."
+  precommit_command:
+    description: "The command(s) to run before committing the files."
+  commit_msg:
+    description: "Deployment commit message."
+runs:
+  using: "docker"
+  image: "Dockerfile"
+branding:
+  icon: "upload-cloud"
+  color: "blue"
