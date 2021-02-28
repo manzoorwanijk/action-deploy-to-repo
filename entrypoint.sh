@@ -40,7 +40,7 @@ cd $GITHUB_WORKSPACE/$CLONE_DIR
 eval "$CLEANUP_COMMAND"
 
 echo "⏳ Copying files from $SRC_DIR"
-# Make sure the directory exists
+# Make sure the directory exists after clean up
 mkdir -p $GITHUB_WORKSPACE/$CLONE_DIR/$TARGET_DIR
 cp -r $GITHUB_WORKSPACE/$SRC_DIR/* $GITHUB_WORKSPACE/$CLONE_DIR/$TARGET_DIR
 
