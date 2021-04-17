@@ -62,7 +62,7 @@ if [ -n "$(git status --porcelain)" ]; then
     echo "🚀 Pushing the changes"
     git push -f origin $TARGET_BRANCH
 else
-    echo "No changes to push"
+    echo "🤷🏻‍♂️ No changes to push"
 fi
 
 echo "✅ All done"
