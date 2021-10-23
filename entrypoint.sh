@@ -42,7 +42,13 @@ eval "$CLEANUP_COMMAND"
 echo "⏳ Copying files from $SRC_DIR"
 # Make sure the directory exists after clean up
 mkdir -p $GITHUB_WORKSPACE/$CLONE_DIR/$TARGET_DIR
-cp -r $GITHUB_WORKSPACE/$SRC_DIR/* $GITHUB_WORKSPACE/$CLONE_DIR/$TARGET_DIR
+
+# If the source is a directory
+if [ -d "$GITHUB_WORKSPACE/$SRC_DIR" ]; then
+    cp -r $GITHUB_WORKSPACE/$SRC_DIR/* $GITHUB_WORKSPACE/$CLONE_DIR/$TARGET_DIR
+else
+    cp -r $GITHUB_WORKSPACE/$SRC_DIR $GITHUB_WORKSPACE/$CLONE_DIR/$TARGET_DIR
+fi
 
 echo "🟡 Running pre-commit command"
 cd $GITHUB_WORKSPACE/$CLONE_DIR
