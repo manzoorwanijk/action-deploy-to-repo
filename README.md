@@ -28,7 +28,7 @@ jobs:
         run: npm install && npm run build
 
       - name: Deploy
-        uses: manzoorwanijk/action-deploy-to-repo@v2
+        uses: manzoorwanijk/action-deploy-to-repo@v3
         with:
           src_dir: build
           target_repo: <org>/<repo>
@@ -69,7 +69,7 @@ jobs:
         run: npm install && npm run build
 
       - name: Deploy
-        uses: manzoorwanijk/action-deploy-to-repo@v2
+        uses: manzoorwanijk/action-deploy-to-repo@v3
         with:
           src_dir: build
           target_repo: <org>/<repo>
