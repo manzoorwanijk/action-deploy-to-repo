@@ -10,7 +10,7 @@ Brief description:
 name: Build and Deploy Assets
 on:
   push:
-    branches: [master]
+    branches: [main]
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -31,10 +31,9 @@ jobs:
         uses: manzoorwanijk/action-deploy-to-repo@v2
         with:
           src_dir: build
-          target_owner: <repo-owner>
-          target_repo: <repo-name>
+          target_repo: <org>/<repo>
           target_dir: src/assets
-          target_branch: master # default
+          target_branch: main # default
           access_token: ${{ secrets.GITHUB_ACCESS_TOKEN }}
           # Optional
           cleanup_command: "rm -rf assets/* && rm -f assets/asset-manifest.json"
@@ -46,7 +45,7 @@ jobs:
 name: Build and Deploy Assets
 on:
   push:
-    branches: [master]
+    branches: [main]
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -73,10 +72,9 @@ jobs:
         uses: manzoorwanijk/action-deploy-to-repo@v2
         with:
           src_dir: build
-          target_owner: <repo-owner>
-          target_repo: <repo-name>
+          target_repo: <org>/<repo>
           target_dir: src/assets
-          target_branch: master # default
+          target_branch: main # default
           cleanup_command: "rm -rf assets/* && rm -f assets/asset-manifest.json"
 ```
 
@@ -86,18 +84,17 @@ Apart from the required arguments, you should either set up SSH as shown in the 
 
 ## Parameters
 
-| Name                | description                                                  | Required                   |
-| ------------------- | ------------------------------------------------------------ | -------------------------- |
-| `src_dir`           | Relative path of the source directory.                       | **YES**                    |
-| `target_owner`      | GitHub username of the target repo owner.                    | **YES**                    |
-| `target_repo`       | Name of the target repo.                                     | **YES**                    |
-| `target_dir`        | Relative path of the target directory.                       | **YES**                    |
-| `target_branch`     | Name of the branch on target repo. Default `master`.         |                            |
-| `access_token`      | GitHub access token for the target repo.                     | **YES** (if not using SSH) |
-| `git_user_email`    | Email of the git user.                                       |                            |
-| `git_user_name`     | Name of the git user.                                        |                            |
-| `cleanup_command`   | The command(s) to run for clean up before copying the files. |                            |
-| `precommit_command` | The command(s) to run before committing the files.           |                            |
-| `commit_msg`        | Deployment commit message.                                   |                            |
+| Name                | description                                                                    | Required                   |
+| ------------------- | ------------------------------------------------------------------------------ | -------------------------- |
+| `src_dir`           | Relative path of the source directory.                                         | **YES**                    |
+| `target_repo`       | Target repository in the form of `<organization>/<repo>` e.g. `google/wireit`. | **YES**                    |
+| `target_dir`        | Relative path of the target directory.                                         | **YES**                    |
+| `target_branch`     | Name of the branch on target repo. Default `main`.                             |                            |
+| `access_token`      | GitHub access token for the target repo.                                       | **YES** (if not using SSH) |
+| `git_user_email`    | Email of the git user.                                                         |                            |
+| `git_user_name`     | Name of the git user.                                                          |                            |
+| `cleanup_command`   | The command(s) to run for clean up before copying the files.                   |                            |
+| `precommit_command` | The command(s) to run before committing the files.                             |                            |
+| `commit_msg`        | Deployment commit message.                                                     |                            |
 
 This action is inspired by [hpcodecraft/action-deploy-workspace-to-repo](https://github.com/hpcodecraft/action-deploy-workspace-to-repo)
