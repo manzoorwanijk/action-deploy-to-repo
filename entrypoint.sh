@@ -10,25 +10,22 @@ git config --global user.email "$GIT_USER_EMAIL"
 git config --global user.name "$GIT_USER_NAME"
 
 ACCESS_TOKEN="$INPUT_ACCESS_TOKEN"
-TARGET_OWNER="$INPUT_TARGET_OWNER"
 TARGET_REPO="$INPUT_TARGET_REPO"
-TARGET_BRANCH="${INPUT_TARGET_BRANCH:-master}"
+TARGET_BRANCH="${INPUT_TARGET_BRANCH:-main}"
 CLEANUP_COMMAND="$INPUT_CLEANUP_COMMAND"
 SRC_DIR="$INPUT_SRC_DIR"
 TARGET_DIR="$INPUT_TARGET_DIR"
 PRECOMMIT_COMMAND="$INPUT_PRECOMMIT_COMMAND"
 
-REPOSITORY="$TARGET_OWNER/$TARGET_REPO"
-
 # If access token is provided, use it
 if [ ! -z "$ACCESS_TOKEN" ]; then
-    REPO_PATH="https://$ACCESS_TOKEN@github.com/$REPOSITORY.git"
+    REPO_PATH="https://$ACCESS_TOKEN@github.com/$TARGET_REPO.git"
 else
     # otherwise it's assumed that SSH is already set up
-    REPO_PATH="git@github.com:$REPOSITORY.git"
+    REPO_PATH="git@github.com:$TARGET_REPO.git"
 fi
 
-echo "⬇️ Cloning $REPOSITORY"
+echo "⬇️ Cloning $TARGET_REPO"
 CLONE_DIR="__${TARGET_REPO}__clone__"
 cd $GITHUB_WORKSPACE
 # Ensure that the clone path is clean
