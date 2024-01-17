@@ -22,7 +22,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: lts
+          node-version: lts/*
 
       - name: Install deps and build
         run: npm install && npm run build
@@ -64,7 +64,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: lts
+          node-version: lts/*
 
       - name: Install deps and build
         run: npm install && npm run build
