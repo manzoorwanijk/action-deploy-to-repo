@@ -17,26 +17,26 @@ jobs:
     name: Deploy Assets
     steps:
       - name: Checkout the commit
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Node
-        uses: dcodeIO/setup-node-nvm@master
+        uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: lts
 
       - name: Install deps and build
-        run: npm install; npm run build
+        run: npm install && npm run build
 
       - name: Deploy
-        uses: manzoorwanijk/action-deploy-to-repo@master
+        uses: manzoorwanijk/action-deploy-to-repo@v2
         with:
           src_dir: build
-          target_owner: manzoorwanijk
-          target_repo: wptelegram-login
+          target_owner: <repo-owner>
+          target_repo: <repo-name>
           target_dir: src/assets
           target_branch: master # default
-          # Optional
           access_token: ${{ secrets.GITHUB_ACCESS_TOKEN }}
+          # Optional
           cleanup_command: "rm -rf assets/* && rm -f assets/asset-manifest.json"
 ```
 
@@ -53,32 +53,30 @@ jobs:
     name: Deploy Assets
     steps:
       - name: Setup SSH
-        uses: MrSquaare/ssh-setup-action@v1
+        uses: MrSquaare/ssh-setup-action@v3
         with:
           host: github.com
           private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Checkout the commit
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Node
-        uses: dcodeIO/setup-node-nvm@master
+        uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: lts
 
       - name: Install deps and build
-        run: npm install; npm run build
+        run: npm install && npm run build
 
       - name: Deploy
-        uses: manzoorwanijk/action-deploy-to-repo@master
+        uses: manzoorwanijk/action-deploy-to-repo@v2
         with:
           src_dir: build
-          target_owner: manzoorwanijk
-          target_repo: wptelegram-login
+          target_owner: <repo-owner>
+          target_repo: <repo-name>
           target_dir: src/assets
           target_branch: master # default
-          # Optional
-          # access_token: ${{ secrets.GITHUB_ACCESS_TOKEN }} # Not needed when using SSH
           cleanup_command: "rm -rf assets/* && rm -f assets/asset-manifest.json"
 ```
 
