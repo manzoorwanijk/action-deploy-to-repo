@@ -4,9 +4,9 @@ All notable changes to this action are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Major tags (`v1`, `v2`, `v3`, ...) move to the newest release of that major version; `vX.Y.Z` tags are immutable.
 
-## [Unreleased]
+## [v4.0.0] - 2026-09-09
 
-The next release is `v4`. It changes several defaults, so read the breaking changes before upgrading.
+This release changes several defaults, so read the breaking changes before upgrading.
 
 ### Breaking
 
@@ -77,7 +77,7 @@ declared `target_owner` as required and still defaulted `target_branch` to
 
 - Initial release. ([#1](https://github.com/manzoorwanijk/action-deploy-to-repo/pull/1))
 
-[unreleased]: https://github.com/manzoorwanijk/action-deploy-to-repo/compare/v3...HEAD
+[v4.0.0]: https://github.com/manzoorwanijk/action-deploy-to-repo/compare/v3...v4.0.0
 [v3]: https://github.com/manzoorwanijk/action-deploy-to-repo/compare/v2...v3
 [v2]: https://github.com/manzoorwanijk/action-deploy-to-repo/compare/v1...v2
 [v1]: https://github.com/manzoorwanijk/action-deploy-to-repo/releases/tag/v1
