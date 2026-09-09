@@ -35,11 +35,29 @@ inputs:
 outputs:
   pushed:
     description: "\"true\" when a commit was pushed to the target branch, \"false\" when there was nothing to deploy."
+    value: ${{ steps.deploy.outputs.pushed }}
   commit_sha:
     description: "Sha of the pushed commit, or of the target branch tip when nothing was pushed."
+    value: ${{ steps.deploy.outputs.commit_sha }}
 runs:
-  using: "docker"
-  image: "Dockerfile"
+  using: "composite"
+  steps:
+    - id: deploy
+      shell: bash
+      run: sh "$GITHUB_ACTION_PATH/entrypoint.sh"
+      env:
+        INPUT_SRC_DIR: ${{ inputs.src_dir }}
+        INPUT_TARGET_REPO: ${{ inputs.target_repo }}
+        INPUT_TARGET_OWNER: ${{ inputs.target_owner }}
+        INPUT_TARGET_DIR: ${{ inputs.target_dir }}
+        INPUT_TARGET_BRANCH: ${{ inputs.target_branch }}
+        INPUT_ACCESS_TOKEN: ${{ inputs.access_token }}
+        INPUT_GIT_USER_EMAIL: ${{ inputs.git_user_email }}
+        INPUT_GIT_USER_NAME: ${{ inputs.git_user_name }}
+        INPUT_CLEANUP_COMMAND: ${{ inputs.cleanup_command }}
+        INPUT_PRECOMMIT_COMMAND: ${{ inputs.precommit_command }}
+        INPUT_COMMIT_MSG: ${{ inputs.commit_msg }}
+        INPUT_FORCE: ${{ inputs.force }}
 branding:
   icon: "upload-cloud"
   color: "blue"
