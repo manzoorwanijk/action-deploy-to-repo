@@ -7,6 +7,77 @@ die() {
 	exit 1
 }
 
+set_outputs() {
+	[ -n "${GITHUB_OUTPUT:-}" ] || return 0
+	printf 'pushed=%s\ncommit_sha=%s\n' "$1" "$2" >>"$GITHUB_OUTPUT"
+}
+
+# Creates $2 under $1 one component at a time, refusing to descend into a
+# symlink, so a link the target repository committed cannot redirect the copy
+# out of the clone. Sets DEST_PATH to the directory it created.
+make_target_dir() {
+	_probe="$1"
+	_old_ifs="$IFS"
+	IFS='/'
+	# Splitting the path must not also glob it against the clone.
+	set -f
+	# shellcheck disable=SC2086 # Deliberate split of the path into components.
+	set -- $2
+	set +f
+	IFS="$_old_ifs"
+	for _component in "$@"; do
+		case "$_component" in '' | .) continue ;; esac
+		_probe="$_probe/$_component"
+		[ ! -L "$_probe" ] || die "target_dir component '$_component' is a symlink in the target repository."
+		[ -d "$_probe" ] || mkdir "$_probe" || die "Failed to create '$TARGET_DIR' in the target repository."
+	done
+	DEST_PATH="$_probe"
+}
+
+# Fails when any component of $1 is a submodule. A non-recursive clone leaves an
+# empty directory there, so the copy would land in it and `git add` would ignore
+# every file, reporting a deploy that deployed nothing.
+assert_no_gitlink() {
+	_probe=""
+	_old_ifs="$IFS"
+	IFS='/'
+	set -f
+	# shellcheck disable=SC2086 # Deliberate split of the path into components.
+	set -- $1
+	set +f
+	IFS="$_old_ifs"
+	for _component in "$@"; do
+		case "$_component" in '' | .) continue ;; esac
+		_probe="${_probe:+$_probe/}$_component"
+		# ls-tree reports the entry type, so only that field is read and git's
+		# quoting of an odd path name cannot hide the entry.
+		if [ "$(git ls-tree HEAD -- ":(literal)$_probe" 2>/dev/null | awk 'NR == 1 { print $2 }')" = "commit" ]; then
+			die "target_dir '$TARGET_DIR' is inside '$_probe', which is a submodule of $TARGET_REPO."
+		fi
+	done
+}
+
+# Removes a symlink sitting at any path the copy is about to write. `cp` follows
+# a destination symlink, so one committed anywhere under target_dir would send
+# the write to wherever it points. Paths are passed as arguments rather than
+# read as lines, so a newline in a name cannot forge one.
+clear_colliding_symlinks() {
+	if [ ! -d "$1" ]; then
+		[ ! -L "$2/${1##*/}" ] || rm -f "$2/${1##*/}"
+		return 0
+	fi
+	find "$1" -mindepth 1 -path "$1/.git" -prune -o -exec sh -c '
+		set -e
+		_dest="$1"
+		_src="$2"
+		shift 2
+		for _path in "$@"; do
+			_collision="$_dest/${_path#"$_src"/}"
+			[ ! -L "$_collision" ] || rm -f "$_collision"
+		done
+	' _ "$2" "$1" {} + || die "Failed to inspect the contents of $SRC_DIR."
+}
+
 # Runs git with the credentials in the environment of that one process. The
 # header is scoped to the server so that a `url.<other>.insteadOf` rewrite
 # cannot capture it, it reaches no process argv, every trace sink that would
@@ -134,6 +205,16 @@ done
 [ -e "$SRC_PATH" ] || die "src_dir '$SRC_DIR' does not exist."
 assert_src_inside_workspace
 
+case "$TARGET_DIR" in
+	/*) die "target_dir must be relative to the root of the target repository." ;;
+	.. | ../* | */../* | */..) die "target_dir must stay inside the target repository." ;;
+esac
+# Writing into .git would let the copy rewrite the clone's own config, and a case
+# insensitive filesystem resolves .GIT to it just the same.
+case "$(printf '%s' "$TARGET_DIR" | tr '[:upper:]' '[:lower:]')" in
+	.git | .git/* | */.git/* | */.git) die "target_dir must not write into the git metadata of the target repository." ;;
+esac
+
 if [ -n "$ACCESS_TOKEN" ]; then
 	# GIT_CONFIG_COUNT, which carries the token, is only read from git 2.31 on.
 	GIT_VERSION="$(git --version | awk '{ print $3 }')"
@@ -175,18 +256,32 @@ CLONE_DIR="$TEMP_ROOT/clone"
 
 echo "⬇️ Cloning $TARGET_REPO"
 # The remote name is pinned because `clone.defaultRemoteName` would otherwise
-# rename it, and hooks are disabled in the clone before its first checkout.
-run_git clone --quiet --no-tags --origin origin --config core.hooksPath=/dev/null \
-	-b "$TARGET_BRANCH" "$REMOTE_URL" "$CLONE_DIR" || die "Failed to clone $TARGET_REPO ($TARGET_BRANCH)."
+# rename it. Nothing is checked out here, so a `.gitattributes` filter cannot run
+# as a child of the process holding the credential; the checkout below has none.
+run_git clone --quiet --no-tags --no-checkout --origin origin \
+	--config core.hooksPath=/dev/null "$REMOTE_URL" "$CLONE_DIR" || die "Failed to clone $TARGET_REPO."
 
 cd "$CLONE_DIR"
 # Resolved before any user command runs, so one that replaces the clone with a
 # symlink cannot move what the rest of the script treats as the clone.
 CLONE_REAL="$(pwd -P)"
-BASE_SHA="$(git rev-parse HEAD)"
 
 git config user.email "$GIT_USER_EMAIL"
 git config user.name "$GIT_USER_NAME"
+
+if git rev-parse --verify --quiet "refs/remotes/origin/$TARGET_BRANCH" >/dev/null; then
+	git checkout --quiet -B "$TARGET_BRANCH" "refs/remotes/origin/$TARGET_BRANCH"
+	BASE_SHA="$(git rev-parse HEAD)"
+else
+	echo "🌱 $TARGET_BRANCH does not exist on $TARGET_REPO, branching it off the default branch"
+	if git rev-parse --verify --quiet HEAD >/dev/null; then
+		git checkout --quiet -B "$TARGET_BRANCH"
+	else
+		# An empty repository has no commit to branch off.
+		git symbolic-ref HEAD "refs/heads/$TARGET_BRANCH"
+	fi
+	BASE_SHA=""
+fi
 
 if [ -n "$CLEANUP_COMMAND" ]; then
 	echo "🧹 Housekeeping"
@@ -198,13 +293,48 @@ echo "⏳ Copying files from $SRC_DIR"
 # cleanup_command may have replaced the source with a link out of the workspace.
 assert_src_inside_workspace
 # Make sure the directory exists after clean up.
-DEST_PATH="$CLONE_REAL/$TARGET_DIR"
-mkdir -p "$DEST_PATH"
+make_target_dir "$CLONE_REAL" "$TARGET_DIR"
+DEST_REAL="$(cd "$DEST_PATH" && pwd -P)"
+case "$DEST_REAL" in
+	"$CLONE_REAL" | "$CLONE_REAL"/*) ;;
+	*) die "target_dir resolves outside the target repository." ;;
+esac
+
+assert_no_gitlink "$TARGET_DIR"
+
+# A nested repository at target_dir would swallow the whole copy too.
+DEST_TOPLEVEL="$(git -C "$DEST_PATH" rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$DEST_TOPLEVEL" ] || [ "$(cd "$DEST_TOPLEVEL" && pwd -P)" != "$CLONE_REAL" ]; then
+	die "target_dir '$TARGET_DIR' belongs to a nested repository, not to $TARGET_REPO."
+fi
+
+clear_colliding_symlinks "$SRC_PATH" "$DEST_PATH"
 
 if [ -d "$SRC_PATH" ]; then
-	cp -r "$SRC_PATH"/* "$DEST_PATH/" || die "Failed to copy $SRC_DIR."
+	find "$SRC_PATH" -mindepth 1 -path "$SRC_PATH/.git" -prune -o -exec sh -c '
+		set -e
+		_target_dir="$1"
+		_src="$2"
+		shift 2
+		for _path in "$@"; do
+			printf "%s\n" "$_target_dir/${_path#"$_src"/}"
+		done
+	' _ "$TARGET_DIR" "$SRC_PATH" {} + >"$TEMP_ROOT/deployed-paths" ||
+		die "Failed to list the contents of $SRC_DIR."
 else
-	cp -r "$SRC_PATH" "$DEST_PATH/" || die "Failed to copy $SRC_DIR."
+	printf '%s\n' "$TARGET_DIR/${SRC_PATH##*/}" >"$TEMP_ROOT/deployed-paths"
+fi
+
+if [ -d "$SRC_PATH" ]; then
+	# Copy entry by entry so dotfiles come along and the source `.git`, which
+	# would clobber the clone or become a gitlink, does not.
+	for entry in "$SRC_PATH"/* "$SRC_PATH"/.[!.]* "$SRC_PATH"/..?*; do
+		[ -e "$entry" ] || [ -L "$entry" ] || continue
+		[ "${entry##*/}" != ".git" ] || continue
+		cp -a "$entry" "$DEST_PATH/" || die "Failed to copy $entry."
+	done
+else
+	cp -a "$SRC_PATH" "$DEST_PATH/" || die "Failed to copy $SRC_DIR."
 fi
 
 if [ -n "$PRECOMMIT_COMMAND" ]; then
@@ -218,20 +348,40 @@ COMMIT_MSG="${INPUT_COMMIT_MSG:-Deployed from $SOURCE_COMMIT}"
 git add -A
 STATUS="$(git status --porcelain)"
 
+if [ -z "$STATUS" ]; then
+	# git drops ignored paths without a word, so a deploy into an ignored
+	# directory would otherwise report success having deployed nothing.
+	IGNORED="$(git check-ignore --stdin <"$TEMP_ROOT/deployed-paths" 2>/dev/null | head -1 || true)"
+	[ -z "$IGNORED" ] ||
+		die "$TARGET_REPO ignores '$IGNORED', so nothing would be committed. Change its .gitignore or target_dir."
+fi
+
 if [ -n "$STATUS" ]; then
 	echo "☑️ Committing changes"
 	git commit --quiet -m "$COMMIT_MSG"
-	echo "🚀 Pushing the changes"
-	# The URL rather than `origin`, so a user command that repointed the remote
-	# cannot redirect the push, and the credentials with it.
-	if [ "$FORCE" = "true" ]; then
-		# The lease keeps the push from discarding commits made since the clone.
-		run_git push --force-with-lease="refs/heads/$TARGET_BRANCH:$BASE_SHA" "$REMOTE_URL" "HEAD:refs/heads/$TARGET_BRANCH"
-	else
-		run_git push "$REMOTE_URL" "HEAD:refs/heads/$TARGET_BRANCH"
-	fi
-else
+elif [ -n "$BASE_SHA" ]; then
 	echo "🤷🏻‍♂️ No changes to push"
+	set_outputs false "$BASE_SHA"
+	echo "✅ All done"
+	exit 0
+elif ! git rev-parse --verify --quiet HEAD >/dev/null; then
+	# The branch is new and the repository is empty, so it needs a commit to be
+	# created at all.
+	git commit --quiet --allow-empty -m "$COMMIT_MSG"
 fi
+
+COMMIT_SHA="$(git rev-parse HEAD)"
+
+echo "🚀 Pushing the changes"
+# The URL rather than `origin`, so a user command that repointed the remote
+# cannot redirect the push, and the credentials with it.
+if [ "$FORCE" = "true" ] && [ -n "$BASE_SHA" ]; then
+	# The lease keeps the push from discarding commits made since the clone.
+	run_git push --force-with-lease="refs/heads/$TARGET_BRANCH:$BASE_SHA" "$REMOTE_URL" "HEAD:refs/heads/$TARGET_BRANCH"
+else
+	run_git push "$REMOTE_URL" "HEAD:refs/heads/$TARGET_BRANCH"
+fi
+
+set_outputs true "$COMMIT_SHA"
 
 echo "✅ All done"

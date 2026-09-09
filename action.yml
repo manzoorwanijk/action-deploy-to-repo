@@ -15,7 +15,7 @@ inputs:
     description: "Relative path of the target directory."
     required: true
   target_branch:
-    description: "Name of the branch on target repo."
+    description: "Name of the branch on target repo. Created off the default branch when it does not exist."
     default: "main"
   access_token:
     description: "GitHub access token for the target repo."
@@ -32,6 +32,11 @@ inputs:
   force:
     description: "Force push the target branch, discarding any commit made on it since the clone. Uses --force-with-lease."
     default: "false"
+outputs:
+  pushed:
+    description: "\"true\" when a commit was pushed to the target branch, \"false\" when there was nothing to deploy."
+  commit_sha:
+    description: "Sha of the pushed commit, or of the target branch tip when nothing was pushed."
 runs:
   using: "docker"
   image: "Dockerfile"
