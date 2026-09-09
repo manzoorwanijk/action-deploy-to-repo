@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: Shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The version is whatever the runner image ships, so record it.
+      - run: shellcheck --version && shellcheck entrypoint.sh tests/run.sh
+
+  test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - run: tests/run.sh
+
+  action:
+    name: Action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up a local target repository
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/server/acme" build
+          git init --quiet --bare "$RUNNER_TEMP/server/acme/site.git"
+          git -C "$RUNNER_TEMP/server/acme/site.git" symbolic-ref HEAD refs/heads/main
+          echo app >build/app.js
+          # GITHUB_SERVER_URL is a protected variable and cannot be overridden,
+          # so redirect the URL the action builds instead.
+          git config --global \
+            "url.file://$RUNNER_TEMP/server/.insteadOf" "https://github.com/"
+
+      - name: Deploy
+        id: deploy
+        uses: ./
+        with:
+          src_dir: build
+          target_repo: acme/site
+          target_dir: assets
+          access_token: dummy-token
+
+      - name: Check the deployment
+        env:
+          PUSHED: ${{ steps.deploy.outputs.pushed }}
+          COMMIT_SHA: ${{ steps.deploy.outputs.commit_sha }}
+        run: |
+          set -eu
+          [ "$(git -C "$RUNNER_TEMP/server/acme/site.git" show main:assets/app.js)" = "app" ]
+          [ "$PUSHED" = "true" ]
+          [ "$COMMIT_SHA" = "$(git -C "$RUNNER_TEMP/server/acme/site.git" rev-parse main)" ]

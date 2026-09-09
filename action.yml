@@ -5,18 +5,18 @@ inputs:
   src_dir:
     description: "Relative path of the source directory."
     required: true
-  target_owner:
-    description: "GitHub username of the target repo owner."
-    required: true
   target_repo:
-    description: "Name of the target repo."
+    description: "Target repository as \"<owner>/<repo>\", e.g. \"google/wireit\"."
     required: true
+  target_owner:
+    description: "Deprecated. Owner of the target repo, only read when target_repo is a bare repository name."
+    required: false
   target_dir:
     description: "Relative path of the target directory."
     required: true
   target_branch:
-    description: "Name of the branch on target repo."
-    default: "master"
+    description: "Name of the branch on target repo. Created off the default branch when it does not exist."
+    default: "main"
   access_token:
     description: "GitHub access token for the target repo."
   git_user_email:
@@ -29,9 +29,35 @@ inputs:
     description: "The command(s) to run before committing the files."
   commit_msg:
     description: "Deployment commit message."
+  force:
+    description: "Force push the target branch, discarding any commit made on it since the clone. Uses --force-with-lease."
+    default: "false"
+outputs:
+  pushed:
+    description: "\"true\" when a commit was pushed to the target branch, \"false\" when there was nothing to deploy."
+    value: ${{ steps.deploy.outputs.pushed }}
+  commit_sha:
+    description: "Sha of the pushed commit, or of the target branch tip when nothing was pushed."
+    value: ${{ steps.deploy.outputs.commit_sha }}
 runs:
-  using: "docker"
-  image: "Dockerfile"
+  using: "composite"
+  steps:
+    - id: deploy
+      shell: bash
+      run: sh "$GITHUB_ACTION_PATH/entrypoint.sh"
+      env:
+        INPUT_SRC_DIR: ${{ inputs.src_dir }}
+        INPUT_TARGET_REPO: ${{ inputs.target_repo }}
+        INPUT_TARGET_OWNER: ${{ inputs.target_owner }}
+        INPUT_TARGET_DIR: ${{ inputs.target_dir }}
+        INPUT_TARGET_BRANCH: ${{ inputs.target_branch }}
+        INPUT_ACCESS_TOKEN: ${{ inputs.access_token }}
+        INPUT_GIT_USER_EMAIL: ${{ inputs.git_user_email }}
+        INPUT_GIT_USER_NAME: ${{ inputs.git_user_name }}
+        INPUT_CLEANUP_COMMAND: ${{ inputs.cleanup_command }}
+        INPUT_PRECOMMIT_COMMAND: ${{ inputs.precommit_command }}
+        INPUT_COMMIT_MSG: ${{ inputs.commit_msg }}
+        INPUT_FORCE: ${{ inputs.force }}
 branding:
   icon: "upload-cloud"
   color: "blue"
