@@ -5,18 +5,18 @@ inputs:
   src_dir:
     description: "Relative path of the source directory."
     required: true
-  target_owner:
-    description: "GitHub username of the target repo owner."
-    required: true
   target_repo:
-    description: "Name of the target repo."
+    description: "Target repository as \"<owner>/<repo>\", e.g. \"google/wireit\"."
     required: true
+  target_owner:
+    description: "Deprecated. Owner of the target repo, only read when target_repo is a bare repository name."
+    required: false
   target_dir:
     description: "Relative path of the target directory."
     required: true
   target_branch:
     description: "Name of the branch on target repo."
-    default: "master"
+    default: "main"
   access_token:
     description: "GitHub access token for the target repo."
   git_user_email:
