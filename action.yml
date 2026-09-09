@@ -29,6 +29,9 @@ inputs:
     description: "The command(s) to run before committing the files."
   commit_msg:
     description: "Deployment commit message."
+  force:
+    description: "Force push the target branch, discarding any commit made on it since the clone. Uses --force-with-lease."
+    default: "false"
 runs:
   using: "docker"
   image: "Dockerfile"

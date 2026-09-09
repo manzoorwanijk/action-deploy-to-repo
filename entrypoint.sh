@@ -7,6 +7,41 @@ die() {
 	exit 1
 }
 
+# Runs git with the credentials in the environment of that one process. The
+# header is scoped to the server so that a `url.<other>.insteadOf` rewrite
+# cannot capture it, it reaches no process argv, every trace sink that would
+# print it is closed, and every kind of child the runner's git configuration can
+# name is refused: hooks, `ext::` remote helpers, credential helpers, askpass
+# programs, an ssh wrapper and the filesystem monitor.
+run_git() {
+	set -- -c core.hooksPath=/dev/null -c protocol.ext.allow=never \
+		-c credential.helper= -c core.askpass= -c core.sshCommand=ssh \
+		-c core.fsmonitor=false "$@"
+	if [ -n "$ACCESS_TOKEN" ]; then
+		(
+			GIT_CONFIG_COUNT=1
+			GIT_CONFIG_KEY_0="http.$SERVER_URL/.extraheader"
+			GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $AUTH_HEADER"
+			export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+			unset GIT_TRACE2_ENV_VARS GIT_TRACE2_CONFIG_PARAMS
+			# git reads these for presence, so assigning 0 switches them on.
+			unset GIT_CURL_VERBOSE GIT_TRACE_CURL GIT_TRACE_CURL_NO_DATA
+			# These read the value, and are assigned rather than unset so that a
+			# trace2 target in the runner's config cannot switch them on.
+			GIT_TRACE=0 GIT_TRACE_PACKET=0 GIT_TRACE_REDACT=1
+			GIT_TRACE2=0 GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0
+			export GIT_TRACE GIT_TRACE_PACKET GIT_TRACE_REDACT
+			export GIT_TRACE2 GIT_TRACE2_EVENT GIT_TRACE2_PERF
+			# An askpass or ssh helper named by the runner's config would
+			# otherwise be a child of this process and see the credential.
+			unset GIT_ASKPASS SSH_ASKPASS
+			exec git "$@"
+		)
+	else
+		git "$@"
+	fi
+}
+
 # Runs a user supplied command in its own shell so that a failure in it fails
 # the action. A `( ... ) || die` subshell would have its `set -e` ignored.
 run_user_command() {
@@ -45,7 +80,12 @@ echo "⚙️ Changing the gears"
 GIT_USER_EMAIL="${INPUT_GIT_USER_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
 GIT_USER_NAME="${INPUT_GIT_USER_NAME:-github-actions[bot]}"
 
+# Assigning to a name the caller exported keeps it exported, which would hand
+# the token to every command this script runs.
+unset ACCESS_TOKEN AUTH_HEADER
 ACCESS_TOKEN="${INPUT_ACCESS_TOKEN:-}"
+# Keep the token out of the environment that the user supplied commands inherit.
+unset INPUT_ACCESS_TOKEN
 TARGET_OWNER="${INPUT_TARGET_OWNER:-}"
 TARGET_REPO="${INPUT_TARGET_REPO:-}"
 TARGET_BRANCH="${INPUT_TARGET_BRANCH:-main}"
@@ -53,11 +93,18 @@ CLEANUP_COMMAND="${INPUT_CLEANUP_COMMAND:-}"
 SRC_DIR="${INPUT_SRC_DIR:-}"
 TARGET_DIR="${INPUT_TARGET_DIR:-.}"
 PRECOMMIT_COMMAND="${INPUT_PRECOMMIT_COMMAND:-}"
+FORCE="${INPUT_FORCE:-false}"
 WORKSPACE="${GITHUB_WORKSPACE:-$PWD}"
+SERVER_URL="${GITHUB_SERVER_URL:-https://github.com}"
+SERVER_URL="${SERVER_URL%/}"
 
 [ -n "$SRC_DIR" ] || die "src_dir is required."
 [ -n "$TARGET_REPO" ] || die "target_repo is required."
 [ -n "$TARGET_BRANCH" ] || die "target_branch cannot be empty."
+case "$FORCE" in
+	true | false) ;;
+	*) die "force must be 'true' or 'false', got '$FORCE'." ;;
+esac
 
 # target_repo takes the "<owner>/<repo>" form. target_owner is only read for the
 # legacy split form and ignored once target_repo already names an owner.
@@ -88,21 +135,55 @@ done
 assert_src_inside_workspace
 
 if [ -n "$ACCESS_TOKEN" ]; then
-	REPO_PATH="https://$ACCESS_TOKEN@github.com/$TARGET_REPO.git"
+	# GIT_CONFIG_COUNT, which carries the token, is only read from git 2.31 on.
+	GIT_VERSION="$(git --version | awk '{ print $3 }')"
+	GIT_MAJOR="${GIT_VERSION%%.*}"
+	GIT_MINOR="${GIT_VERSION#*.}"
+	GIT_MINOR="${GIT_MINOR%%.*}"
+	case "$GIT_MAJOR.$GIT_MINOR" in
+		[0-9]*.[0-9]*)
+			if [ "$GIT_MAJOR" -lt 2 ] || { [ "$GIT_MAJOR" -eq 2 ] && [ "$GIT_MINOR" -lt 31 ]; }; then
+				die "access_token needs git 2.31 or newer, found $GIT_VERSION."
+			fi
+			;;
+	esac
+
+	REMOTE_URL="$SERVER_URL/$TARGET_REPO.git"
+	AUTH_HEADER="$(printf 'x-access-token:%s' "$ACCESS_TOKEN" | base64 | tr -d '\n')"
 else
 	# Otherwise it is assumed that SSH is already set up.
-	REPO_PATH="git@github.com:$TARGET_REPO.git"
+	SERVER_HOST="${SERVER_URL#*://}"
+	SERVER_HOST="${SERVER_HOST%%/*}"
+	case "$SERVER_HOST" in
+		# The scp-like form has no way to spell a port.
+		*:*) REMOTE_URL="ssh://git@$SERVER_HOST/$TARGET_REPO.git" ;;
+		*) REMOTE_URL="git@$SERVER_HOST:$TARGET_REPO.git" ;;
+	esac
+	AUTH_HEADER=""
 fi
 
+# Clone outside the workspace so the checkout is never picked up by later steps.
+TEMP_ROOT="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/deploy-to-repo.XXXXXX")" ||
+	die "Failed to create a temporary directory for the clone."
+# `|| true` because a failing clean up must not turn a successful deploy into a
+# failed step.
+trap 'rm -rf "$TEMP_ROOT" || true' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+CLONE_DIR="$TEMP_ROOT/clone"
+
 echo "⬇️ Cloning $TARGET_REPO"
-CLONE_DIR="$WORKSPACE/__deploy_to_repo_clone__"
-[ ! -e "$CLONE_DIR" ] || die "$CLONE_DIR already exists in the workspace."
-git clone --quiet -b "$TARGET_BRANCH" "$REPO_PATH" "$CLONE_DIR" || die "Failed to clone $TARGET_REPO ($TARGET_BRANCH)."
+# The remote name is pinned because `clone.defaultRemoteName` would otherwise
+# rename it, and hooks are disabled in the clone before its first checkout.
+run_git clone --quiet --no-tags --origin origin --config core.hooksPath=/dev/null \
+	-b "$TARGET_BRANCH" "$REMOTE_URL" "$CLONE_DIR" || die "Failed to clone $TARGET_REPO ($TARGET_BRANCH)."
 
 cd "$CLONE_DIR"
 # Resolved before any user command runs, so one that replaces the clone with a
 # symlink cannot move what the rest of the script treats as the clone.
 CLONE_REAL="$(pwd -P)"
+BASE_SHA="$(git rev-parse HEAD)"
 
 git config user.email "$GIT_USER_EMAIL"
 git config user.name "$GIT_USER_NAME"
@@ -141,7 +222,14 @@ if [ -n "$STATUS" ]; then
 	echo "☑️ Committing changes"
 	git commit --quiet -m "$COMMIT_MSG"
 	echo "🚀 Pushing the changes"
-	git push -f origin "HEAD:refs/heads/$TARGET_BRANCH"
+	# The URL rather than `origin`, so a user command that repointed the remote
+	# cannot redirect the push, and the credentials with it.
+	if [ "$FORCE" = "true" ]; then
+		# The lease keeps the push from discarding commits made since the clone.
+		run_git push --force-with-lease="refs/heads/$TARGET_BRANCH:$BASE_SHA" "$REMOTE_URL" "HEAD:refs/heads/$TARGET_BRANCH"
+	else
+		run_git push "$REMOTE_URL" "HEAD:refs/heads/$TARGET_BRANCH"
+	fi
 else
 	echo "🤷🏻‍♂️ No changes to push"
 fi
